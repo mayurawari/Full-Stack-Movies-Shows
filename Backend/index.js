@@ -4,20 +4,23 @@ config();
 import cors from "cors";
 import connectDb, { sequelize } from "./src/config/db.js";
 import mvroute from "./src/routes/movies.js";
+import authroute from "./src/routes/authroute.js";
+import { auth } from "./src/middlewares/auth.js";
 
 const server = express();
 const port = process.env.PORT || 9090;
 
 server.use(cors());
 server.use(express.json());
-server.use("/moviesapi",mvroute);
+server.use("/auth",authroute);
+server.use("/moviesapi",auth,mvroute);
 
 server.get("/", (req, res) => {
   res.send("Home Route");
 });
 
 // to keep the connection alive with aivendb.
-// Simple health-check route (for UptimeRobot or manual checks)
+// health route (for UptimeRobot or manual checks)
 server.get("/health", async (req, res) => {
   try {
     await sequelize.query("SELECT 1;");
