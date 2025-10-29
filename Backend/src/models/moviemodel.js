@@ -9,6 +9,7 @@ const moviemodel = sequelize.define("Movie", {
   location: DataTypes.STRING,
   duration: DataTypes.STRING,
   year: DataTypes.STRING,
+  poster: DataTypes.STRING,
 });
 
 export default moviemodel;
