@@ -134,4 +134,4 @@
 - Click Logout in the header to end the session; the token is blacklisted server‑side and cleared client‑side.
 
 # Deployed Link 
-- 🔗 **Live:** [Click here to try](https://who-wants-to-be-embarrassed-quiz-o-two.vercel.app/)  
+- 🔗 **Live:** [Click here to try](https://full-stack-movies-shows.vercel.app/auth)  
