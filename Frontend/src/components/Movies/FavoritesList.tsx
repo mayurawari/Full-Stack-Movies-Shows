@@ -5,7 +5,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   Paper,
   Table,
   TableBody,
@@ -18,6 +17,7 @@ import {
   Chip,
   TextField,
   DialogContentText,
+  IconButton,
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -63,16 +63,14 @@ export default function FavoritesList({ version }: FavoritesListProps) {
   const [hasMore, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLTableRowElement | null>(null);
 
-  // 1) Refs to guard duplicate fetches
+  // Guards for infinite scroll
   const inFlightRef = useRef(false);
   const lastKeyRef = useRef<string>("");
 
-  // 2) Stable primitive filter key for dedupe
   const filterKey = useMemo(() => {
     return `${appliedFilters.title}|${appliedFilters.type}|${appliedFilters.yearMin}|${appliedFilters.yearMax}`;
   }, [appliedFilters]);
 
-  // 3) Fetch with dedupe and in-flight lock
   const fetchPage = useCallback(
     async (nextOffset: number, filters = appliedFilters) => {
       const key = `${nextOffset}|${filters.title}|${filters.type}|${filters.yearMin}|${filters.yearMax}`;
@@ -103,15 +101,15 @@ export default function FavoritesList({ version }: FavoritesListProps) {
       }
     },
     [limit, appliedFilters]
-  ); // appliedFilters only to keep default param in sync
+  );
 
-  // 4) Initial load and when version changes: reset dedupe key
+  // Initial load and version/filter reset
   useEffect(() => {
     lastKeyRef.current = "";
     fetchPage(0);
-  }, [fetchPage, version, filterKey]); // include filterKey only if SERVER_FILTERS is true; else you can omit
+  }, [fetchPage, version, filterKey]);
 
-  // 5) Server-side filter change triggers hard reset
+  // Server-side filter change
   useEffect(() => {
     if (SERVER_FILTERS) {
       lastKeyRef.current = "";
@@ -120,16 +118,15 @@ export default function FavoritesList({ version }: FavoritesListProps) {
   }, [appliedFilters, fetchPage]);
 
   const onCreate = async (m: Movie) => {
-    const { id, ...payload } = m as any;
+    const { id, createdAt, updatedAt, userId, ...payload } = m as any;
     const { data } = await api.post("/moviesapi/addmovie", payload);
     setItems((p) => [data, ...p]);
     setTotal((t) => t + 1);
   };
 
-  // Update: expects id to be present from ManualMovieForm initial state
   const onUpdate = async (m: Movie) => {
     if (!m?.id) return;
-    const { id, userId, ...payload } = m as any;
+    const { id, userId, createdAt, updatedAt, ...payload } = m as any;
     const { data } = await api.put(`/moviesapi/updatemovie/${id}`, payload);
     setItems((p) => p.map((x) => (x.id === id ? data : x)));
     setEditing(null);
@@ -143,7 +140,7 @@ export default function FavoritesList({ version }: FavoritesListProps) {
     setConfirm({ open: false });
   };
 
-  // Client-side filtering for responsiveness (when SERVER_FILTERS === false)
+  // Client-side filtering
   const rows = useMemo(() => {
     if (SERVER_FILTERS) return items;
 
@@ -172,7 +169,7 @@ export default function FavoritesList({ version }: FavoritesListProps) {
     });
   }, [items, appliedFilters]);
 
-  // 6) IntersectionObserver: attach once, debounce events, strict cleanup
+  // IntersectionObserver with strict cleanup
   useEffect(() => {
     const node = sentinelRef.current;
     if (!node || isLoading || !hasMore) return;
@@ -187,7 +184,6 @@ export default function FavoritesList({ version }: FavoritesListProps) {
         const entry = entries[0];
         if (!entry?.isIntersecting || pending || isLoading || !hasMore) return;
         pending = true;
-        // collapse multiple intersections in same frame
         queueMicrotask(() => {
           fetchPage(offset + limit);
           pending = false;
@@ -197,18 +193,17 @@ export default function FavoritesList({ version }: FavoritesListProps) {
     );
 
     observer.observe(node);
-    return () => {
-      observer.disconnect();
-    };
+    return () => observer.disconnect();
   }, [offset, limit, hasMore, isLoading, fetchPage]);
 
   const resetDraft = () =>
     setDraftFilters({ title: "", type: "", yearMin: "", yearMax: "" });
+
   const applyFilters = () => {
     setAppliedFilters(draftFilters);
     setFilterOpen(false);
     if (SERVER_FILTERS) {
-      // reset pagination when server filtering
+      lastKeyRef.current = "";
       fetchPage(0, draftFilters);
     }
   };
@@ -227,8 +222,9 @@ export default function FavoritesList({ version }: FavoritesListProps) {
 
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: 0.2 }}>
-          Favourites
+          Favourites ({items.length} of {total})
         </Typography>
+        
         <Button
           variant="outlined"
           startIcon={<FilterListIcon />}
