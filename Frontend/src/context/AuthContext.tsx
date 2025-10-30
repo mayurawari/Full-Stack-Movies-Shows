@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
 
-// Minimal user type; backend doesn’t expose /me, so derive from email
 type User = { id: number; email: string; username: string } | null;
 
 type AuthContextType = {
@@ -15,16 +14,14 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType>({} as any);
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
-  const [user, setUser]   = useState<User>(null);
+  const [user, setUser] = useState<User>(null);
   const [token, setToken] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
-  // Rehydrate auth state on first mount
   useEffect(() => {
     const t = localStorage.getItem('token');
     if (t) {
       setToken(t);
-      // If you stored email separately, use it; else fallback label
       const email = localStorage.getItem('email') || 'user@example.com';
       const username = localStorage.getItem('username') || email.split('@')[0];
       setUser({ id: 0, email, username });
@@ -52,9 +49,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     const tok = localStorage.getItem('token');
     try {
       if (tok) await api.post('/auth/logout', {}, { headers: { Authorization: `Bearer ${tok}` } });
-    } catch {
-      console.warn('Logout request failed, clearing local auth state anyway.');
-    }
+    } catch {}
     localStorage.removeItem('token');
     localStorage.removeItem('email');
     localStorage.removeItem('username');
@@ -63,8 +58,6 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   };
 
   const value = useMemo(() => ({ user, token, login, signup, logout }), [user, token]);
-
-  
   if (!ready) return null;
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

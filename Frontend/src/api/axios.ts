@@ -15,7 +15,9 @@ api.interceptors.response.use(
   (err) => {
     if (err?.response?.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/auth';
+      localStorage.removeItem('email');
+      localStorage.removeItem('username');
+      if (window.location.pathname !== '/auth') window.location.href = '/auth';
     }
     return Promise.reject(err);
   }

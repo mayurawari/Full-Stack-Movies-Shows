@@ -17,79 +17,121 @@ import {
   Stack,
   Chip,
   TextField,
-  MenuItem,
-} from '@mui/material';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import CircularProgress from '@mui/material/CircularProgress';
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import api from '../../api/axios';
-import type { Movie } from '../../types';
-import ManualMovieForm from './ManualMovieForm';
+  DialogContentText,
+} from "@mui/material";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import CircularProgress from "@mui/material/CircularProgress";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import api from "../../api/axios";
+import type { Movie } from "../../types";
+import ManualMovieForm from "./ManualMovieForm";
+
 interface FavoritesListProps {
-  version: number;
+  version?: number;
 }
+
+const SERVER_FILTERS = false; // set true to query server with filters
+
 export default function FavoritesList({ version }: FavoritesListProps) {
   const [items, setItems] = useState<Movie[]>([]);
-  const [limit] = useState(10); // fixed page size
-  const [offset, setOffset] = useState(0); // current next offset
+  const [total, setTotal] = useState(0);
+  const [limit] = useState(10);
+  const [offset, setOffset] = useState(0);
+
   const [editing, setEditing] = useState<Movie | null>(null);
-  const [confirm, setConfirm] = useState<{ open: boolean; id?: number }>({ open: false });
-
-  // Filter modal state (unchanged)
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [draftFilters, setDraftFilters] = useState<{ title: string; type: string; yearMin: string; yearMax: string }>({
-    title: '',
-    type: '',
-    yearMin: '',
-    yearMax: '',
+  const [confirm, setConfirm] = useState<{ open: boolean; id?: number }>({
+    open: false,
   });
-  const [appliedFilters, setAppliedFilters] = useState(draftFilters);
 
-  // Infinite scroll state
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [draftFilters, setDraftFilters] = useState({
+    title: "",
+    type: "",
+    yearMin: "",
+    yearMax: "",
+  });
+  const [appliedFilters, setAppliedFilters] = useState({
+    title: "",
+    type: "",
+    yearMin: "",
+    yearMax: "",
+  });
+
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLTableRowElement | null>(null);
 
-  // Fetch a page by offset, append if offset>0 else replace
+  // 1) Refs to guard duplicate fetches
+  const inFlightRef = useRef(false);
+  const lastKeyRef = useRef<string>("");
+
+  // 2) Stable primitive filter key for dedupe
+  const filterKey = useMemo(() => {
+    return `${appliedFilters.title}|${appliedFilters.type}|${appliedFilters.yearMin}|${appliedFilters.yearMax}`;
+  }, [appliedFilters]);
+
+  // 3) Fetch with dedupe and in-flight lock
   const fetchPage = useCallback(
-    async (nextOffset: number) => {
+    async (nextOffset: number, filters = appliedFilters) => {
+      const key = `${nextOffset}|${filters.title}|${filters.type}|${filters.yearMin}|${filters.yearMax}`;
+      if (inFlightRef.current || key === lastKeyRef.current) return;
+      inFlightRef.current = true;
+      lastKeyRef.current = key;
+
       setIsLoading(true);
       try {
-        const { data } = await api.get('/moviesapi/allmovies', { params: { limit, offset: nextOffset } });
-        const list: Movie[] = Array.isArray(data) ? data : [];
+        const params: any = { limit, offset: nextOffset };
+        if (SERVER_FILTERS) {
+          if (filters.title?.trim()) params.title = filters.title.trim();
+          if (filters.type?.trim()) params.type = filters.type.trim();
+          if (filters.yearMin) params.yearMin = Number(filters.yearMin);
+          if (filters.yearMax) params.yearMax = Number(filters.yearMax);
+        }
+        const { data } = await api.get("/moviesapi/allmovies", { params });
+        const list: Movie[] = data?.items ?? [];
+        const count: number = data?.total ?? list.length;
+
         setItems((prev) => (nextOffset === 0 ? list : [...prev, ...list]));
-        setHasMore(list.length === limit);
-        setOffset(nextOffset + list.length);
+        setTotal(count);
+        setHasMore(list.length === limit && nextOffset + list.length < count);
+        setOffset(nextOffset);
       } finally {
+        inFlightRef.current = false;
         setIsLoading(false);
       }
     },
-    [limit]
-  );
+    [limit, appliedFilters]
+  ); // appliedFilters only to keep default param in sync
 
-  // Initial load
+  // 4) Initial load and when version changes: reset dedupe key
   useEffect(() => {
+    lastKeyRef.current = "";
     fetchPage(0);
-    console.log(version)
-  }, [fetchPage]);
+  }, [fetchPage, version, filterKey]); // include filterKey only if SERVER_FILTERS is true; else you can omit
 
-  // Optional: refresh from server when filters change (keeps client-side filter logic intact)
+  // 5) Server-side filter change triggers hard reset
   useEffect(() => {
-    fetchPage(0);
+    if (SERVER_FILTERS) {
+      lastKeyRef.current = "";
+      fetchPage(0, appliedFilters);
+    }
   }, [appliedFilters, fetchPage]);
 
-  // CRUD handlers (unchanged)
   const onCreate = async (m: Movie) => {
-    const { data } = await api.post('/moviesapi/addmovie', m);
+    const { id, ...payload } = m as any;
+    const { data } = await api.post("/moviesapi/addmovie", payload);
     setItems((p) => [data, ...p]);
+    setTotal((t) => t + 1);
   };
 
+  // Update: expects id to be present from ManualMovieForm initial state
   const onUpdate = async (m: Movie) => {
-    if (!m.id) return;
-    const { data } = await api.put(`/moviesapi/updatemovie/${m.id}`, m);
-    setItems((p) => p.map((x) => (x.id === m.id ? data : x)));
+    if (!m?.id) return;
+    const { id, userId, ...payload } = m as any;
+    const { data } = await api.put(`/moviesapi/updatemovie/${id}`, payload);
+    setItems((p) => p.map((x) => (x.id === id ? data : x)));
     setEditing(null);
   };
 
@@ -97,11 +139,14 @@ export default function FavoritesList({ version }: FavoritesListProps) {
     if (!id) return;
     await api.delete(`/moviesapi/deletemovie/${id}`);
     setItems((p) => p.filter((x) => x.id !== id));
+    setTotal((t) => Math.max(0, t - 1));
     setConfirm({ open: false });
   };
 
-  // Apply simple client-side filters (unchanged)
+  // Client-side filtering for responsiveness (when SERVER_FILTERS === false)
   const rows = useMemo(() => {
+    if (SERVER_FILTERS) return items;
+
     const f = appliedFilters;
     const titleQ = f.title.trim().toLowerCase();
     const typeQ = f.type.trim().toLowerCase();
@@ -109,86 +154,74 @@ export default function FavoritesList({ version }: FavoritesListProps) {
     const yMax = f.yearMax ? parseInt(f.yearMax, 10) : undefined;
 
     return items.filter((m) => {
-      const okTitle = titleQ ? (m.title || '').toLowerCase().includes(titleQ) : true;
-      const okType = typeQ ? (m.type || '').toLowerCase() === typeQ : true;
-      const y = typeof m.year === 'number' ? m.year : parseInt(String(m.year || ''), 10);
-      const okYearMin = yMin !== undefined ? (!isNaN(y) && y >= yMin) : true;
-      const okYearMax = yMax !== undefined ? (!isNaN(y) && y <= yMax) : true;
+      const okTitle = titleQ
+        ? (m.title ?? "").toLowerCase().includes(titleQ)
+        : true;
+      const okType = typeQ ? (m.type ?? "").toLowerCase() === typeQ : true;
+
+      const yRaw =
+        typeof m.year === "number" ? m.year : parseInt(String(m.year), 10);
+      const y = Number.isFinite(yRaw) ? (yRaw as number) : NaN;
+
+      const okYearMin =
+        yMin !== undefined ? !Number.isNaN(y) && y >= yMin : true;
+      const okYearMax =
+        yMax !== undefined ? !Number.isNaN(y) && y <= yMax : true;
+
       return okTitle && okType && okYearMin && okYearMax;
     });
   }, [items, appliedFilters]);
 
-  // Infer type options from current items (unchanged)
-  const typeOptions = useMemo(() => {
-    const set = new Set<string>();
-    items.forEach((m) => m.type && set.add(m.type));
-    return Array.from(set);
-  }, [items]);
-
-  // IntersectionObserver for sentinel to load next page
+  // 6) IntersectionObserver: attach once, debounce events, strict cleanup
   useEffect(() => {
-    if (!hasMore || isLoading) return;
     const node = sentinelRef.current;
-    if (!node) return;
+    if (!node || isLoading || !hasMore) return;
 
+    const container = node.closest(
+      ".MuiTableContainer-root"
+    ) as HTMLElement | null;
+
+    let pending = false;
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry?.isIntersecting && !isLoading && hasMore) {
-          fetchPage(offset);
-        }
+        if (!entry?.isIntersecting || pending || isLoading || !hasMore) return;
+        pending = true;
+        // collapse multiple intersections in same frame
+        queueMicrotask(() => {
+          fetchPage(offset + limit);
+          pending = false;
+        });
       },
-      {
-        // Ensure we observe within the scrolling TableContainer
-        root: node.parentElement?.parentElement || null, // tbody -> table -> container
-        rootMargin: '0px',
-        threshold: 1.0,
-      }
+      { root: container ?? undefined, threshold: 0.1, rootMargin: "0px" }
     );
 
     observer.observe(node);
-    return () => observer.disconnect();
-  }, [offset, hasMore, isLoading, fetchPage]);
+    return () => {
+      observer.disconnect();
+    };
+  }, [offset, limit, hasMore, isLoading, fetchPage]);
 
-  // Helpers for modal actions (unchanged)
-  const resetDraft = () => setDraftFilters({ title: '', type: '', yearMin: '', yearMax: '' });
-  const openFilter = () => {
-    setDraftFilters(appliedFilters);
-    setFilterOpen(true);
-  };
+  const resetDraft = () =>
+    setDraftFilters({ title: "", type: "", yearMin: "", yearMax: "" });
   const applyFilters = () => {
     setAppliedFilters(draftFilters);
     setFilterOpen(false);
+    if (SERVER_FILTERS) {
+      // reset pagination when server filtering
+      fetchPage(0, draftFilters);
+    }
   };
 
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gap: 3,
-      }}
-    >
-      <Paper
-        variant="outlined"
-        sx={{
-          p: { xs: 2, sm: 2.5 },
-          borderRadius: 2,
-          bgcolor: (t) => (t.palette.mode === 'dark' ? '#111' : '#fafafa'),
-          borderColor: (t) => (t.palette.mode === 'dark' ? '#1f1f1f' : '#e5e5e5'),
-        }}
-      >
+    <Box sx={{ display: "grid", gap: 24 / 8 }}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, sm: 2.5 }, borderRadius: 2 }}>
         <Typography
           variant="h6"
-          sx={{
-            mb: 1.5,
-            fontWeight: 700,
-            letterSpacing: 0.2,
-            color: (t) => (t.palette.mode === 'dark' ? '#eaeaea' : '#111'),
-          }}
+          sx={{ mb: 1.5, fontWeight: 700, letterSpacing: 0.2 }}
         >
           Add movie
         </Typography>
-
         <ManualMovieForm onSubmit={onCreate} submitLabel="Add movie" />
       </Paper>
 
@@ -199,9 +232,10 @@ export default function FavoritesList({ version }: FavoritesListProps) {
         <Button
           variant="outlined"
           startIcon={<FilterListIcon />}
-          onClick={openFilter}
-          sx={{ borderRadius: 2 }}
-          aria-label="Open filters"
+          onClick={() => {
+            setDraftFilters(appliedFilters);
+            setFilterOpen(true);
+          }}
         >
           Filters
         </Button>
@@ -210,11 +244,12 @@ export default function FavoritesList({ version }: FavoritesListProps) {
       <TableContainer
         component={Paper}
         sx={{
-          width: '100%',
+          width: "100%",
           borderRadius: 2,
-          border: (t) => `1px solid ${t.palette.mode === 'dark' ? '#1f1f1f' : '#e5e5e5'}`,
-          bgcolor: (t) => (t.palette.mode === 'dark' ? '#0f0f0f' : '#fff'),
-          overflow: 'auto',
+          border: (t) =>
+            `1px solid ${t.palette.mode === "dark" ? "#1f1f1f" : "#e5e5e5"}`,
+          bgcolor: (t) => (t.palette.mode === "dark" ? "#0f0f0f" : "#fff"),
+          overflow: "auto",
           maxHeight: { xs: 480, sm: 560, md: 640 },
         }}
       >
@@ -223,19 +258,16 @@ export default function FavoritesList({ version }: FavoritesListProps) {
           size="small"
           aria-label="movies table"
           sx={{
-            tableLayout: 'fixed',
-            '& thead th': {
+            tableLayout: "fixed",
+            "& thead th": {
               fontWeight: 700,
               letterSpacing: 0.2,
-              bgcolor: (t) => (t.palette.mode === 'dark' ? '#131313' : '#f5f5f5'),
-              color: (t) => (t.palette.mode === 'dark' ? '#dcdcdc' : '#222'),
-              borderBottom: (t) => `1px solid ${t.palette.mode === 'dark' ? '#1f1f1f' : '#e5e5e5'}`,
+              bgcolor: (t) =>
+                t.palette.mode === "dark" ? "#131313" : "#f5f5f5",
             },
-            '& tbody tr:nth-of-type(odd)': {
-              bgcolor: (t) => (t.palette.mode === 'dark' ? '#0d0d0d' : '#fafafa'),
-            },
-            '& tbody tr:hover': {
-              bgcolor: (t) => (t.palette.mode === 'dark' ? '#171717' : '#f0f0f0'),
+            "& tbody tr:nth-of-type(odd)": {
+              bgcolor: (t) =>
+                t.palette.mode === "dark" ? "#0d0d0d" : "fafafa",
             },
           }}
         >
@@ -260,13 +292,17 @@ export default function FavoritesList({ version }: FavoritesListProps) {
               </TableCell>
             </TableRow>
           </TableHead>
-
           <TableBody>
             {rows.map((m) => (
               <TableRow
                 hover
                 key={`${m.id}-${m.title}`}
-                sx={{ '& td': { borderColor: (t) => (t.palette.mode === 'dark' ? '#1a1a1a' : '#eee') } }}
+                sx={{
+                  "& td": {
+                    borderColor: (t) =>
+                      t.palette.mode === "dark" ? "#1a1a1a" : "#eee",
+                  },
+                }}
               >
                 <TableCell>
                   {m.poster ? (
@@ -277,10 +313,13 @@ export default function FavoritesList({ version }: FavoritesListProps) {
                       sx={{
                         width: 48,
                         height: 72,
-                        objectFit: 'cover',
+                        objectFit: "cover",
                         borderRadius: 1,
-                        display: 'block',
-                        border: (t) => `1px solid ${t.palette.mode === 'dark' ? '#1f1f1f' : '#e5e5e5'}`,
+                        display: "block",
+                        border: (t) =>
+                          `1px solid ${
+                            t.palette.mode === "dark" ? "#1f1f1f" : "#e5e5e5"
+                          }`,
                       }}
                     />
                   ) : (
@@ -288,97 +327,66 @@ export default function FavoritesList({ version }: FavoritesListProps) {
                       sx={{
                         width: 48,
                         height: 72,
-                        bgcolor: (t) => (t.palette.mode === 'dark' ? '#161616' : '#f1f1f1'),
+                        bgcolor: (t) =>
+                          t.palette.mode === "dark" ? "#161616" : "#f1f1f1",
                         borderRadius: 1,
                       }}
                     />
                   )}
                 </TableCell>
-
                 <TableCell>
                   <Typography variant="body2" noWrap title={m.title}>
                     {m.title}
                   </Typography>
                 </TableCell>
-
                 <TableCell>
-                  {m.type ? (
+                  {m.type && (
                     <Chip
                       label={m.type}
                       size="small"
-                      sx={{
-                        borderRadius: 1,
-                        fontWeight: 600,
-                        bgcolor: (t) => (t.palette.mode === 'dark' ? '#1a1a1a' : '#f2f2f2'),
-                        color: (t) => (t.palette.mode === 'dark' ? '#d0d0d0' : '#222'),
-                        border: (t) => `1px solid ${t.palette.mode === 'dark' ? '#232323' : '#e0e0e0'}`,
-                      }}
+                      sx={{ borderRadius: 1, fontWeight: 600 }}
                     />
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">
-                      —
-                    </Typography>
                   )}
                 </TableCell>
-
                 <TableCell>
                   <Typography variant="body2" noWrap title={m.director}>
                     {m.director}
                   </Typography>
                 </TableCell>
-
                 <TableCell align="right">
-                  <Typography variant="body2">{m.year || '—'}</Typography>
+                  <Typography variant="body2">{m.year}</Typography>
                 </TableCell>
-
                 <TableCell align="right">
-                  <Typography variant="body2">{m.duration || '—'}</Typography>
+                  <Typography variant="body2">{m.duration}</Typography>
                 </TableCell>
-
                 <TableCell align="right">
-                  <Typography variant="body2">{m.budget || '—'}</Typography>
+                  <Typography variant="body2">{m.budget}</Typography>
                 </TableCell>
-
                 <TableCell>
                   <Typography variant="body2" noWrap title={m.location}>
                     {m.location}
                   </Typography>
                 </TableCell>
-
                 <TableCell align="right">
-                  <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                    <IconButton
-                      size="small"
-                      aria-label={`Edit ${m.title}`}
-                      onClick={() => setEditing(m)}
-                      sx={{
-                        border: (t) => `1px solid ${t.palette.mode === 'dark' ? '#232323' : '#e0e0e0'}`,
-                        bgcolor: (t) => (t.palette.mode === 'dark' ? '#121212' : '#fff'),
-                        '&:hover': { bgcolor: (t) => (t.palette.mode === 'dark' ? '#181818' : '#f7f7f7') },
-                      }}
-                    >
-                      <EditIcon fontSize="inherit" />
-                    </IconButton>
-
-                    <IconButton
-                      size="small"
-                      aria-label={`Delete ${m.title}`}
-                      onClick={() => setConfirm({ open: true, id: m.id })}
-                      sx={{
-                        border: (t) => `1px solid ${t.palette.mode === 'dark' ? '#232323' : '#e0e0e0'}`,
-                        bgcolor: (t) => (t.palette.mode === 'dark' ? '#121212' : '#fff'),
-                        color: (t) => (t.palette.mode === 'dark' ? '#ff6b6b' : '#b00020'),
-                        '&:hover': { bgcolor: (t) => (t.palette.mode === 'dark' ? '#181818' : '#f7f7f7') },
-                      }}
-                    >
-                      <DeleteIcon fontSize="inherit" />
-                    </IconButton>
-                  </Stack>
+                  <IconButton
+                    size="small"
+                    aria-label={`Edit ${m.title}`}
+                    onClick={() => setEditing(m)}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    aria-label={`Delete ${m.title}`}
+                    onClick={() => setConfirm({ open: true, id: m.id })}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
                 </TableCell>
               </TableRow>
             ))}
 
-            {/* loading indicator row */}
             {isLoading && (
               <TableRow>
                 <TableCell colSpan={9} align="center">
@@ -389,18 +397,16 @@ export default function FavoritesList({ version }: FavoritesListProps) {
               </TableRow>
             )}
 
-            {/* sentinel row to trigger loading next page */}
             {hasMore && (
               <TableRow ref={sentinelRef}>
                 <TableCell colSpan={9} />
               </TableRow>
             )}
 
-            {/* empty state */}
             {rows.length === 0 && !isLoading && (
               <TableRow>
                 <TableCell colSpan={9}>
-                  <Box sx={{ py: 6, textAlign: 'center' }}>
+                  <Box sx={{ py: 6, textAlign: "center" }}>
                     <Typography variant="h6" sx={{ mb: 1 }}>
                       No movies yet
                     </Typography>
@@ -415,132 +421,66 @@ export default function FavoritesList({ version }: FavoritesListProps) {
         </Table>
       </TableContainer>
 
-      {/* Edit dialog */}
-      <Dialog
-        open={!!editing}
-        onClose={() => setEditing(null)}
-        fullWidth
-        maxWidth="sm"
-        sx={{
-          '& .MuiPaper-root': {
-            borderRadius: 2,
-            bgcolor: (t) => (t.palette.mode === 'dark' ? '#0f0f0f' : '#fff'),
-            border: (t) => `1px solid ${t.palette.mode === 'dark' ? '#1f1f1f' : '#e5e5e5'}`,
-          },
-          '& .MuiBackdrop-root': {
-            backgroundColor: (t) => (t.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.35)'),
-          },
-        }}
-      >
-        <DialogTitle
-          sx={{
-            fontWeight: 700,
-            letterSpacing: 0.2,
-            pb: 1,
-          }}
-        >
-          Edit movie
-        </DialogTitle>
-        <DialogContent dividers sx={{ pt: 2 }}>
-          {editing && (
-            <ManualMovieForm
-              initial={editing}
-              onSubmit={onUpdate}
-              submitLabel="Update"
-              onCancel={() => setEditing(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirm dialog */}
-      <Dialog
-        open={confirm.open}
-        onClose={() => setConfirm({ open: false })}
-        sx={{
-          '& .MuiPaper-root': {
-            borderRadius: 2,
-            bgcolor: (t) => (t.palette.mode === 'dark' ? '#0f0f0f' : '#fff'),
-            border: (t) => `1px solid ${t.palette.mode === 'dark' ? '#1f1f1f' : '#e5e5e5'}`,
-          },
-          '& .MuiBackdrop-root': {
-            backgroundColor: (t) => (t.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.35)'),
-          },
-        }}
-      >
-        <DialogTitle sx={{ fontWeight: 700, letterSpacing: 0.2, pb: 1 }}>
-          Delete this movie?
-        </DialogTitle>
-        <DialogContent dividers sx={{ pt: 2 }}>
-          <Typography variant="body2">This action can’t be undone.</Typography>
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setConfirm({ open: false })}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={() => onDelete(confirm.id)}>
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Filter dialog */}
+      {/* Filters dialog */}
       <Dialog
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
         fullWidth
         maxWidth="sm"
-        sx={{
-          '& .MuiPaper-root': {
-            borderRadius: 2,
-            bgcolor: (t) => (t.palette.mode === 'dark' ? '#0f0f0f' : '#fff'),
-            border: (t) => `1px solid ${t.palette.mode === 'dark' ? '#1f1f1f' : '#e5e5e5'}`,
-          },
-          '& .MuiBackdrop-root': {
-            backgroundColor: (t) => (t.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.35)'),
-          },
-        }}
+        sx={{ "& .MuiPaper-root": { borderRadius: 2 } }}
       >
-        <DialogTitle sx={{ fontWeight: 700, letterSpacing: 0.2, pb: 1 }}>Filters</DialogTitle>
-        <DialogContent dividers sx={{ pt: 2 }}>
+        <DialogTitle sx={{ fontWeight: 700, letterSpacing: 0.2, pb: 1 }}>
+          Filters
+        </DialogTitle>
+        <DialogContent dividers>
+          <DialogContentText variant="body2" sx={{ mb: 2 }}>
+            {SERVER_FILTERS
+              ? "Filters apply on the server."
+              : "Filters apply instantly on the current page."}
+          </DialogContentText>
           <Stack spacing={2}>
             <TextField
               label="Title contains"
-              size="small"
               value={draftFilters.title}
-              onChange={(e) => setDraftFilters((s) => ({ ...s, title: e.target.value }))}
-              placeholder="e.g., Inception"
+              onChange={(e) =>
+                setDraftFilters((f) => ({ ...f, title: e.target.value }))
+              }
+              size="small"
+              fullWidth
             />
             <TextField
-              label="Type"
-              size="small"
-              select
+              label="Type (exact, e.g., movie/series)"
               value={draftFilters.type}
-              onChange={(e) => setDraftFilters((s) => ({ ...s, type: e.target.value }))}
-            >
-              <MenuItem value="">Any</MenuItem>
-              {typeOptions.map((t) => (
-                <MenuItem key={t} value={t}>
-                  {t}
-                </MenuItem>
-              ))}
-            </TextField>
-            <Stack direction="row" spacing={1}>
+              onChange={(e) =>
+                setDraftFilters((f) => ({ ...f, type: e.target.value }))
+              }
+              size="small"
+              fullWidth
+            />
+            <Stack direction="row" spacing={2}>
               <TextField
                 label="Year min"
-                size="small"
-                type="number"
-                inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
                 value={draftFilters.yearMin}
-                onChange={(e) => setDraftFilters((s) => ({ ...s, yearMin: e.target.value }))}
-                sx={{ flex: 1 }}
+                onChange={(e) =>
+                  setDraftFilters((f) => ({
+                    ...f,
+                    yearMin: e.target.value.replace(/[^0-9]/g, ""),
+                  }))
+                }
+                size="small"
+                inputMode="numeric"
               />
               <TextField
                 label="Year max"
-                size="small"
-                type="number"
-                inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
                 value={draftFilters.yearMax}
-                onChange={(e) => setDraftFilters((s) => ({ ...s, yearMax: e.target.value }))}
-                sx={{ flex: 1 }}
+                onChange={(e) =>
+                  setDraftFilters((f) => ({
+                    ...f,
+                    yearMax: e.target.value.replace(/[^0-9]/g, ""),
+                  }))
+                }
+                size="small"
+                inputMode="numeric"
               />
             </Stack>
           </Stack>
@@ -552,7 +492,56 @@ export default function FavoritesList({ version }: FavoritesListProps) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Edit dialog with external submit button bound to inner form */}
+      <Dialog
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        fullWidth
+        maxWidth="sm"
+        sx={{ "& .MuiPaper-root": { borderRadius: 2 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, letterSpacing: 0.2, pb: 1 }}>
+          Edit movie
+        </DialogTitle>
+        <DialogContent dividers sx={{ pt: 2 }}>
+          {editing && (
+            <ManualMovieForm
+              initial={editing}
+              onSubmit={onUpdate}
+              submitLabel="Update"
+              onCancel={() => setEditing(null)}
+              formId="edit-movie-form"
+            />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setEditing(null)}>Cancel</Button>
+          <Button type="submit" form="edit-movie-form" variant="contained">
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={confirm.open}
+        onClose={() => setConfirm({ open: false })}
+        sx={{ "& .MuiPaper-root": { borderRadius: 2 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, letterSpacing: 0.2, pb: 1 }}>
+          Delete this movie?
+        </DialogTitle>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setConfirm({ open: false })}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => onDelete(confirm.id)}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
-

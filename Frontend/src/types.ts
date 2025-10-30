@@ -1,7 +1,7 @@
 export type Movie = {
   id?: number;
   title: string;
-  type: string; // "Movie" | "Series"
+  type: string; // "Movie" | "TV Show"
   director: string;
   budget: string;
   location: string;

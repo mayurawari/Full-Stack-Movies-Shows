@@ -12,15 +12,16 @@ const port = process.env.PORT || 9090;
 
 server.use(cors());
 server.use(express.json());
-server.use("/auth",authroute);
-server.use("/moviesapi",auth,mvroute);
 
-server.get("/", (req, res) => {
-  res.send("Home Route");
-});
+// Public auth routes
+server.use("/auth", authroute);
 
-// to keep the connection alive with aivendb.
-// health route (for UptimeRobot or manual checks)
+// Protected movie routes (all endpoints require JWT)
+server.use("/moviesapi", auth, mvroute);
+
+server.get("/", (req, res) => res.send("Home Route"));
+
+// Health check
 server.get("/health", async (req, res) => {
   try {
     await sequelize.query("SELECT 1;");
@@ -34,7 +35,7 @@ server.get("/health", async (req, res) => {
 server.listen(port, async () => {
   try {
     await connectDb();
-    sequelize.sync();
+    await sequelize.sync(); // Consider sequelize.sync({ alter: true }) during dev
     console.log("Connected to DB.");
     console.log(`Server Started on port : ${port}`);
   } catch (error) {

@@ -4,8 +4,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function AppBar() {
   const { user, token, logout } = useAuth();
-  const navigate  = useNavigate();
-  const location  = useLocation();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const onLoginClick = () => {
     if (location.pathname !== '/auth') navigate('/auth');
@@ -16,9 +16,9 @@ export default function AppBar() {
       position="sticky"
       elevation={1}
       sx={{
-        bgcolor: (t) => (t.palette.mode === 'dark' ? '#111' : '#fafafa'),
-        color: (t) => (t.palette.mode === 'dark' ? '#eaeaea' : '#111'),
-        borderBottom: (t) => `1px solid ${t.palette.mode === 'dark' ? '#222' : '#e5e5e5'}`,
+        bgcolor: '#000', // true black navbar
+        color: '#fff',
+        borderBottom: '1px solid #111',
       }}
     >
       <Toolbar
@@ -34,13 +34,7 @@ export default function AppBar() {
         <Typography
           variant="h6"
           onClick={() => navigate('/')}
-          sx={{
-            cursor: 'pointer',
-            fontWeight: 700,
-            letterSpacing: 0.3,
-            color: 'inherit',
-            '&:hover': { opacity: 0.85 },
-          }}
+          sx={{ cursor: 'pointer', fontWeight: 700, letterSpacing: 0.3, '&:hover': { opacity: 0.85 } }}
         >
           Movies
         </Typography>
@@ -48,26 +42,18 @@ export default function AppBar() {
         <Stack direction="row" alignItems="center" spacing={1.5}>
           {token ? (
             <>
-              <Typography
-                variant="body2"
-                sx={{ color: (t) => (t.palette.mode === 'dark' ? '#bdbdbd' : '#4a4a4a') }}
-              >
+              <Typography variant="body2" sx={{ color: '#bdbdbd' }}>
                 Hello, {user?.username || 'User'}
               </Typography>
-
               <Button
                 variant="outlined"
                 onClick={logout}
                 sx={{
                   textTransform: 'none',
                   fontWeight: 600,
-                  borderColor: (t) => (t.palette.mode === 'dark' ? '#333' : '#cfcfcf'),
-                  color: 'inherit',
-                  bgcolor: 'transparent',
-                  '&:hover': {
-                    borderColor: (t) => (t.palette.mode === 'dark' ? '#444' : '#bdbdbd'),
-                    bgcolor: (t) => (t.palette.mode === 'dark' ? '#161616' : '#f2f2f2'),
-                  },
+                  borderColor: '#555',
+                  color: '#fff',         // ensure white text on black
+                  '&:hover': { borderColor: '#777', backgroundColor: 'rgba(255,255,255,0.06)' },
                 }}
               >
                 Logout
@@ -80,11 +66,8 @@ export default function AppBar() {
               sx={{
                 textTransform: 'none',
                 fontWeight: 700,
-                bgcolor: (t) => (t.palette.mode === 'dark' ? '#eaeaea' : '#111'),
-                color: (t) => (t.palette.mode === 'dark' ? '#111' : '#fff'),
-                '&:hover': {
-                  bgcolor: (t) => (t.palette.mode === 'dark' ? '#d5d5d5' : '#000'),
-                },
+                bgcolor: '#1976d2',
+                '&:hover': { bgcolor: '#1565c0' },
               }}
             >
               Login

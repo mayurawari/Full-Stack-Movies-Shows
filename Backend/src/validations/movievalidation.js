@@ -8,7 +8,7 @@ const movieschema = Joi.object({
   location: Joi.string().required(),
   duration: Joi.string().required(),
   year: Joi.string().required(),
-  poster: Joi.string()
+  poster: Joi.string().allow(""),
 });
 
 export default movieschema;
