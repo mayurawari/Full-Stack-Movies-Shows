@@ -17,7 +17,7 @@
 
 ### Tech Stack
 
-- Frontend: React, TypeScript, Vite, Material UI v7 (Grid v2), Tailwind
+- Frontend: React, TypeScript, Vite, Material UI v7, Tailwind
 
 - State/Auth: Context API, localStorage persistence
 
@@ -30,6 +30,11 @@
 ### Protected UI:
 
 - Home is wrapped in a Protected route; users without a token are redirected to /auth.
+
+### Test Login Credentials
+
+- email* : example@gmail.com
+- password* : 123456
 
 ### Rehydrated auth:
 
@@ -83,43 +88,23 @@
 
 - Install and Run
 
-- Backend
+### Backend
 
 - Navigate to Backend
 
-- Install
-
 - npm install
+  
+- settle .env
 
-- Development
+- npm run server / npm run start
 
-- npm run dev
-
-- Production build
-
-- npm run build
-
-- npm start
-
-- Seed or migrate DB as needed depending on your Sequelize setup.
-
-- Frontend
+### Frontend
 
 - Navigate to Frontend
 
-- Install
-
 - npm install
 
-- Development
-
 - npm run dev
-
-- Production build
-
-- npm run build
-
-- npm run preview
 
 ### Usage Flow
 
