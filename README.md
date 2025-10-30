@@ -25,6 +25,12 @@
 
 - Backend: Node.js, Express, JWT, bcrypt, Sequelize models for User/Movie and blacklist
 
+### Tools Used
+
+- Perplexity AI — Used for multi‑source research synthesis to validate design choices, surface edge cases, and de‑risk implementation before coding.
+
+- ChatGPT — Used as a paired engineering assistant for iterative refactoring, prompt‑driven code generation, and verification to convert ideas into production‑ready snippets.
+
 ## Key Features
 
 ### Protected UI:
